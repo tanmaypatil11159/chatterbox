@@ -54,15 +54,12 @@ function ChatContainer({ onOpenLeft }) {
 
   /* fetch messages */
   useEffect(() => {
-
     if (!selectedUser || selectedUser.friendStatus !== "friend") {
-      setMessages([]);
       return;
     }
 
     getMessages(selectedUser._id);
-
-  }, [selectedUser, getMessages, setMessages]);
+  }, [selectedUser?._id, getMessages]);
 
   /* REALTIME SOCKET LISTENER */
   useEffect(() => {

@@ -5,14 +5,13 @@ import { AuthContext } from "./authContext";
 export const ChatContext = createContext();
 
 export const ChatProvider = ({ children }) => {
-  const [messages, setMessages] = useState([]);
+  const [allMessages, setAllMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [unseenMessages, setUnseenMessages] = useState({});
 
   const { socket, axios, authUser } = useContext(AuthContext);
-
 
   // get all users for sidebar
   const getUsers = useCallback(async () => {
@@ -33,7 +32,7 @@ export const ChatProvider = ({ children }) => {
       const { data } = await axios.post(`/api/friends/request/${userId}`);
       if (data.success) {
         toast.success(data.message);
-        getUsers(); // Refresh to update status
+        getUsers();
       }
     } catch (error) {
       toast.error(error.response?.data?.message || error.message);
@@ -45,7 +44,7 @@ export const ChatProvider = ({ children }) => {
       const { data } = await axios.post(`/api/friends/accept/${userId}`);
       if (data.success) {
         toast.success(data.message);
-        getUsers(); // Refresh
+        getUsers();
       }
     } catch (error) {
       toast.error(error.response?.data?.message || error.message);
@@ -57,7 +56,7 @@ export const ChatProvider = ({ children }) => {
       const { data } = await axios.post(`/api/friends/reject/${userId}`);
       if (data.success) {
         toast.success(data.message);
-        getUsers(); // Refresh
+        getUsers();
       }
     } catch (error) {
       toast.error(error.response?.data?.message || error.message);
@@ -69,7 +68,7 @@ export const ChatProvider = ({ children }) => {
       const { data } = await axios.post(`/api/friends/unfriend/${userId}`);
       if (data.success) {
         toast.success(data.message);
-        getUsers(); // Refresh
+        getUsers();
       }
     } catch (error) {
       toast.error(error.response?.data?.message || error.message);
@@ -81,7 +80,7 @@ export const ChatProvider = ({ children }) => {
       const { data } = await axios.post(`/api/friends/block/${userId}`);
       if (data.success) {
         toast.success(data.message);
-        getUsers(); // Refresh
+        getUsers();
         if (selectedUser?._id === userId) setSelectedUser(null);
       }
     } catch (error) {
@@ -94,7 +93,7 @@ export const ChatProvider = ({ children }) => {
       const { data } = await axios.post(`/api/friends/unblock/${userId}`);
       if (data.success) {
         toast.success(data.message);
-        getUsers(); // Refresh
+        getUsers();
       }
     } catch (error) {
       toast.error(error.response?.data?.message || error.message);
@@ -103,14 +102,20 @@ export const ChatProvider = ({ children }) => {
 
   // ================================================
 
-  // get messages of selected user
+  // get messages of selected user - MERGE with existing messages instead of replacing!
   const getMessages = useCallback(async (userId) => {
     console.log("📥 getMessages called for userId:", userId);
     try {
       const { data } = await axios.get(`/api/messages/${userId}`);
       if (data.success) {
         console.log("📥 getMessages received data.messages:", data.messages);
-        setMessages(data.messages);
+        
+        // Merge API messages with existing allMessages to avoid overwriting real-time messages
+        setAllMessages((prev) => {
+          const existingIds = new Set(prev.map(m => String(m._id)));
+          const newMessages = data.messages.filter(m => !existingIds.has(String(m._id)));
+          return [...prev, ...newMessages];
+        });
       }
     } catch (error) {
       toast.error(error.response?.data?.message || error.message);
@@ -170,9 +175,9 @@ export const ChatProvider = ({ children }) => {
       });
       if (data.success) {
         if (deleteType === "forMe") {
-          setMessages((prev) => prev.filter((msg) => String(msg._id) !== String(messageId)));
+          setAllMessages((prev) => prev.filter((msg) => String(msg._id) !== String(messageId)));
         } else {
-          setMessages((prev) =>
+          setAllMessages((prev) =>
             prev.map((msg) =>
               String(msg._id) === String(messageId)
                 ? { ...msg, isDeletedForEveryone: true, text: "", image: "" }
@@ -187,75 +192,52 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
-  // subscribe to socket messages with useCallback to prevent duplicates
+  // ================= SOCKET LISTENERS =================
+  // NO selectedUser dependency!
   const onNewMessage = useCallback((newMessage) => {
     console.log("📡 SOCKET RECEIVED newMessage:", newMessage);
-    console.log("📡 Current selectedUser:", selectedUser);
 
     if (!newMessage) return;
 
-    const senderId =
-      typeof newMessage.senderId === "object"
-        ? newMessage.senderId._id
-        : newMessage.senderId;
+    // Add message to global allMessages state - NO FILTERING HERE!
+    setAllMessages((prev) => {
+      const exists = prev.some(msg => String(msg._id) === String(newMessage._id));
+      if (exists) return prev;
+      return [...prev, newMessage];
+    });
 
-    const receiverId =
-      typeof newMessage.receiverId === "object"
-        ? newMessage.receiverId._id
-        : newMessage.receiverId;
+    // Handle unseen messages
+    const senderId = typeof newMessage.senderId === "object"
+      ? newMessage.senderId._id
+      : newMessage.senderId;
 
-    const selectedId = selectedUser?._id;
+    const myId = authUser?._id;
+    const isFromMe = String(senderId) === String(myId);
 
-    console.log("📡 Parsed IDs - senderId:", senderId, "receiverId:", receiverId, "selectedId:", selectedId);
-
-    const isCurrentChat =
-      String(senderId) === String(selectedId) ||
-      String(receiverId) === String(selectedId);
-
-    console.log("📡 isCurrentChat:", isCurrentChat);
-
-    if (isCurrentChat) {
-      console.log("📡 Message belongs to current chat, updating state");
-      
-      setMessages((prev) => {
-        const exists = prev.some(
-          (msg) => String(msg._id) === String(newMessage._id)
-        );
-
-        console.log("📡 Duplicate check - exists:", exists, "prev messages count:", prev.length);
-        
-        if (exists) return prev;
-
-        const updatedMessages = [...prev, newMessage];
-        console.log("📡 Updated messages:", updatedMessages);
-        return updatedMessages;
-      });
-
-      if (String(senderId) === String(selectedId)) {
-        axios.put(`/api/messages/mark/${newMessage._id}`);
-      }
-
-    } else {
-      console.log("📡 Message doesn't belong to current chat, updating unseen count");
-      
+    if (!isFromMe) {
+      // Only update unseen count if message is not from me
       setUnseenMessages((prev) => ({
         ...prev,
-        [senderId]: prev[senderId]
-          ? prev[senderId] + 1
+        [String(senderId)]: prev[String(senderId)]
+          ? prev[String(senderId)] + 1
           : 1,
       }));
     }
 
-  }, [selectedUser, axios]);
+    // Mark as seen if it's for the currently selected user and we're on that chat
+    if (selectedUser && String(senderId) === String(selectedUser._id)) {
+      axios.put(`/api/messages/mark/${newMessage._id}`);
+    }
+  }, [authUser, axios, selectedUser]);
 
   const onMessageDeletedForMe = useCallback((messageId) => {
     console.log("🗑️ SOCKET RECEIVED messageDeletedForMe:", messageId);
-    setMessages((prev) => prev.filter((msg) => String(msg._id) !== String(messageId)));
+    setAllMessages((prev) => prev.filter((msg) => String(msg._id) !== String(messageId)));
   }, []);
 
   const onMessageDeletedForEveryone = useCallback(({ id }) => {
     console.log("🗑️ SOCKET RECEIVED messageDeletedForEveryone:", id);
-    setMessages((prev) =>
+    setAllMessages((prev) =>
       prev.map((msg) =>
         String(msg._id) === String(id)
           ? { ...msg, isDeletedForEveryone: true, text: "", image: "" }
@@ -278,24 +260,36 @@ export const ChatProvider = ({ children }) => {
     };
   }, [socket, onNewMessage, onMessageDeletedForMe, onMessageDeletedForEveryone]);
 
-  // Load users when component mounts and when socket connects
+  // Load users when component mounts
   useEffect(() => {
     getUsers();
-  }, [getUsers, socket]);
+  }, [getUsers]);
 
-  // reset selection on auth change to avoid cross-account leakage
+  // reset selection on auth change
   useEffect(() => {
     setSelectedUser(null);
-    setMessages([]);
+    setAllMessages([]);
   }, [authUser]);
 
+  // Derived state: filter messages for selected user
+  const messages = selectedUser ? allMessages.filter(msg => {
+    const senderId = typeof msg.senderId === "object" ? msg.senderId._id : msg.senderId;
+    const receiverId = typeof msg.receiverId === "object" ? msg.receiverId._id : msg.receiverId;
+    const selectedId = selectedUser._id;
+    return (
+      String(senderId) === String(selectedId) ||
+      String(receiverId) === String(selectedId)
+    );
+  }) : [];
+
   const value = {
-    messages,
+    allMessages,
+    messages, // filtered messages for selected user
     users,
     selectedUser,
     getUsers,
     getMessages,
-    setMessages,
+    setAllMessages,
     sendMessage,
     deleteMessage,
     sendImage,
