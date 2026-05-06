@@ -82,7 +82,9 @@ export const getMessages = async (req, res) => {
                 },
                 { deletedFor: { $ne: myId } }
             ]
-        });
+        })
+          .populate("senderId", "fullName profilePic username")
+          .populate("receiverId", "fullName profilePic username");
 
         // Mark messages as seen
         await Message.updateMany(
@@ -183,7 +185,9 @@ export const sendMessage = async (req, res) => {
         });
 
         // Populate the message exactly like REST API does
-        const populatedMessage = await Message.findById(newMessage._id);
+        const populatedMessage = await Message.findById(newMessage._id)
+          .populate("senderId", "fullName profilePic username")
+          .populate("receiverId", "fullName profilePic username");
 
         // Emit the new message to both sender and receiver's sockets (use globalThis set in server)
         const receiverSocketIds = globalThis.userSocketMap && globalThis.userSocketMap[receiverId];
