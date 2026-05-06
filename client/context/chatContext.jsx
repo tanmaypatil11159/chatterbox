@@ -5,7 +5,7 @@ import { AuthContext } from "./authContext";
 export const ChatContext = createContext();
 
 export const ChatProvider = ({ children }) => {
-  const [allMessages, setAllMessages] = useState([]);
+  const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
@@ -102,18 +102,17 @@ export const ChatProvider = ({ children }) => {
 
   // ================================================
 
-  // get messages of selected user - MERGE with existing messages instead of replacing!
+  // get messages of selected user - MERGE with existing to avoid overwriting socket messages
   const getMessages = useCallback(async (userId) => {
     console.log("📥 getMessages called for userId:", userId);
     try {
       const { data } = await axios.get(`/api/messages/${userId}`);
       if (data.success) {
         console.log("📥 getMessages received data.messages:", data.messages);
-        
-        // Merge API messages with existing allMessages to avoid overwriting real-time messages
-        setAllMessages((prev) => {
+        setMessages((prev) => {
           const existingIds = new Set(prev.map(m => String(m._id)));
           const newMessages = data.messages.filter(m => !existingIds.has(String(m._id)));
+          console.log("📥 getMessages merging - existingIds:", existingIds, "newMessages to add:", newMessages);
           return [...prev, ...newMessages];
         });
       }
@@ -175,9 +174,9 @@ export const ChatProvider = ({ children }) => {
       });
       if (data.success) {
         if (deleteType === "forMe") {
-          setAllMessages((prev) => prev.filter((msg) => String(msg._id) !== String(messageId)));
+          setMessages((prev) => prev.filter((msg) => String(msg._id) !== String(messageId)));
         } else {
-          setAllMessages((prev) =>
+          setMessages((prev) =>
             prev.map((msg) =>
               String(msg._id) === String(messageId)
                 ? { ...msg, isDeletedForEveryone: true, text: "", image: "" }
@@ -192,52 +191,60 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
-  // ================= SOCKET LISTENERS =================
-  // NO selectedUser dependency!
+  // ================= SOCKET LISTENERS - EXACTLY LIKE ROOM CONTEXT =================
   const onNewMessage = useCallback((newMessage) => {
     console.log("📡 SOCKET RECEIVED newMessage:", newMessage);
 
     if (!newMessage) return;
 
-    // Add message to global allMessages state - NO FILTERING HERE!
-    setAllMessages((prev) => {
-      const exists = prev.some(msg => String(msg._id) === String(newMessage._id));
-      if (exists) return prev;
-      return [...prev, newMessage];
-    });
+    const senderId = typeof newMessage.senderId === "object" ? newMessage.senderId._id : newMessage.senderId;
+    const receiverId = typeof newMessage.receiverId === "object" ? newMessage.receiverId._id : newMessage.receiverId;
+    const selectedId = selectedUser?._id;
 
-    // Handle unseen messages
-    const senderId = typeof newMessage.senderId === "object"
-      ? newMessage.senderId._id
-      : newMessage.senderId;
+    console.log("📡 Parsed IDs - senderId:", senderId, "receiverId:", receiverId, "selectedId:", selectedId);
 
-    const myId = authUser?._id;
-    const isFromMe = String(senderId) === String(myId);
+    const isCurrentChat = selectedUser && (
+      String(senderId) === String(selectedId) || 
+      String(receiverId) === String(selectedId)
+    );
 
-    if (!isFromMe) {
-      // Only update unseen count if message is not from me
-      setUnseenMessages((prev) => ({
-        ...prev,
-        [String(senderId)]: prev[String(senderId)]
-          ? prev[String(senderId)] + 1
-          : 1,
-      }));
+    console.log("📡 isCurrentChat:", isCurrentChat);
+
+    if (isCurrentChat) {
+      console.log("📡 Updating messages state");
+      setMessages((prev) => {
+        const exists = prev.some(msg => String(msg._id) === String(newMessage._id));
+        console.log("📡 Duplicate check - exists:", exists);
+        if (exists) return prev;
+        return [...prev, newMessage];
+      });
+
+      // Mark as seen if message is from the selected user
+      if (String(senderId) === String(selectedId)) {
+        axios.put(`/api/messages/mark/${newMessage._id}`);
+      }
+    } else {
+      // Update unseen count only if message is not from me
+      const myId = authUser?._id;
+      if (String(senderId) !== String(myId)) {
+        setUnseenMessages((prev) => ({
+          ...prev,
+          [String(senderId)]: prev[String(senderId)]
+            ? prev[String(senderId)] + 1
+            : 1,
+        }));
+      }
     }
-
-    // Mark as seen if it's for the currently selected user and we're on that chat
-    if (selectedUser && String(senderId) === String(selectedUser._id)) {
-      axios.put(`/api/messages/mark/${newMessage._id}`);
-    }
-  }, [authUser, axios, selectedUser]);
+  }, [selectedUser, authUser, axios]);
 
   const onMessageDeletedForMe = useCallback((messageId) => {
     console.log("🗑️ SOCKET RECEIVED messageDeletedForMe:", messageId);
-    setAllMessages((prev) => prev.filter((msg) => String(msg._id) !== String(messageId)));
+    setMessages((prev) => prev.filter((msg) => String(msg._id) !== String(messageId)));
   }, []);
 
   const onMessageDeletedForEveryone = useCallback(({ id }) => {
     console.log("🗑️ SOCKET RECEIVED messageDeletedForEveryone:", id);
-    setAllMessages((prev) =>
+    setMessages((prev) =>
       prev.map((msg) =>
         String(msg._id) === String(id)
           ? { ...msg, isDeletedForEveryone: true, text: "", image: "" }
@@ -265,31 +272,24 @@ export const ChatProvider = ({ children }) => {
     getUsers();
   }, [getUsers]);
 
+  // Clear messages when selected user changes
+  useEffect(() => {
+    setMessages([]);
+  }, [selectedUser?._id]);
+
   // reset selection on auth change
   useEffect(() => {
     setSelectedUser(null);
-    setAllMessages([]);
+    setMessages([]);
   }, [authUser]);
 
-  // Derived state: filter messages for selected user
-  const messages = selectedUser ? allMessages.filter(msg => {
-    const senderId = typeof msg.senderId === "object" ? msg.senderId._id : msg.senderId;
-    const receiverId = typeof msg.receiverId === "object" ? msg.receiverId._id : msg.receiverId;
-    const selectedId = selectedUser._id;
-    return (
-      String(senderId) === String(selectedId) ||
-      String(receiverId) === String(selectedId)
-    );
-  }) : [];
-
   const value = {
-    allMessages,
-    messages, // filtered messages for selected user
+    messages,
     users,
     selectedUser,
     getUsers,
     getMessages,
-    setAllMessages,
+    setMessages,
     sendMessage,
     deleteMessage,
     sendImage,

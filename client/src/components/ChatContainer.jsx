@@ -15,15 +15,15 @@ import {
 import { VideoCallContext } from "../../context/VideoCallContext";
 
 function ChatContainer({ onOpenLeft }) {
-
   const { authUser, onlineUsers } = useContext(AuthContext);
-
   const {
     messages,
     sendMessage,
     sendImage,
     getMessages,
     selectedUser,
+    setSelectedUser,
+    setMessages,
     deleteMessage,
     sendFriendRequest,
     acceptFriendRequest,
@@ -32,8 +32,9 @@ function ChatContainer({ onOpenLeft }) {
     blockUser,
     unblockUser
   } = useContext(ChatContext);
-
   const { startCall } = useContext(VideoCallContext);
+
+  console.log("💬 ChatContainer - messages state:", messages);
 
   const [input, setInput] = useState("");
   const [showMenu, setShowMenu] = useState(false);
@@ -52,12 +53,13 @@ function ChatContainer({ onOpenLeft }) {
   // =========================
 
   useEffect(() => {
-
+    console.log("📥 ChatContainer - useEffect for getMessages triggered");
+    
     if (!selectedUser?._id) return;
 
     getMessages(selectedUser._id);
 
-  }, [selectedUser?._id]);
+  }, [selectedUser?._id, getMessages]);
 
 
 
@@ -93,7 +95,8 @@ function ChatContainer({ onOpenLeft }) {
   // =========================
 
   const filteredMessages = useMemo(() => {
-
+    console.log("🔍 ChatContainer - filteredMessages calculated, messages length:", messages.length);
+    
     if (!selectedUser?._id) return [];
 
     return messages.filter((msg) => {
