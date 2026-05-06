@@ -185,64 +185,60 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
-  // subscribe to socket messages
-  const subscribeToMessages = () => {
-    if (!socket) return;
-
-    socket.on("newMessage", (newMessage) => {
-      if (!newMessage) return;
-      if (selectedUser && (newMessage.senderId === selectedUser._id || newMessage.receiverId === selectedUser._id)) {
-        // Check if message already exists to avoid duplicates
-        setMessages((prev) => {
-          const exists = prev.some(msg => msg._id === newMessage._id);
-          if (exists) return prev;
-          const updatedMessages = [...prev, newMessage];
-          return updatedMessages;
-        });
-        
-        // Mark as seen if it's from the selected user
-        if (newMessage.senderId === selectedUser._id) {
-          newMessage.seen = true;
-          axios.put(`/api/messages/mark/${newMessage._id}`);
-        }
-      } else {
-        setUnseenMessages((prev) => ({
-          ...prev,
-          [newMessage.senderId]: prev[newMessage.senderId]
-            ? prev[newMessage.senderId] + 1
-            : 1,
-        }));
+  // subscribe to socket messages with useCallback to prevent duplicates
+  const onNewMessage = useCallback((newMessage) => {
+    if (!newMessage) return;
+    if (selectedUser && (newMessage.senderId === selectedUser._id || newMessage.receiverId === selectedUser._id)) {
+      // Check if message already exists to avoid duplicates
+      setMessages((prev) => {
+        const exists = prev.some(msg => msg._id === newMessage._id);
+        if (exists) return prev;
+        const updatedMessages = [...prev, newMessage];
+        return updatedMessages;
+      });
+      
+      // Mark as seen if it's from the selected user
+      if (newMessage.senderId === selectedUser._id) {
+        newMessage.seen = true;
+        axios.put(`/api/messages/mark/${newMessage._id}`);
       }
-    });
-
-    socket.on("messageDeletedForMe", (messageId) => {
-      setMessages((prev) => prev.filter((msg) => msg._id !== messageId));
-    });
-
-    socket.on("messageDeletedForEveryone", ({ id }) => {
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg._id === id
-            ? { ...msg, isDeletedForEveryone: true, text: "", image: "" }
-            : msg
-        )
-      );
-    });
-  };
-
-  // unsubscribe from socket messages
-  const unsubscribeFromMessages = () => {
-    if (socket) {
-      socket.off("newMessage");
-      socket.off("messageDeletedForMe");
-      socket.off("messageDeletedForEveryone");
+    } else {
+      setUnseenMessages((prev) => ({
+        ...prev,
+        [newMessage.senderId]: prev[newMessage.senderId]
+          ? prev[newMessage.senderId] + 1
+          : 1,
+      }));
     }
-  };
+  }, [selectedUser, axios]);
+
+  const onMessageDeletedForMe = useCallback((messageId) => {
+    setMessages((prev) => prev.filter((msg) => msg._id !== messageId));
+  }, []);
+
+  const onMessageDeletedForEveryone = useCallback(({ id }) => {
+    setMessages((prev) =>
+      prev.map((msg) =>
+        msg._id === id
+          ? { ...msg, isDeletedForEveryone: true, text: "", image: "" }
+          : msg
+      )
+    );
+  }, []);
 
   useEffect(() => {
-    subscribeToMessages();
-    return () => unsubscribeFromMessages();
-  }, [socket, selectedUser]);
+    if (!socket) return;
+
+    socket.on("newMessage", onNewMessage);
+    socket.on("messageDeletedForMe", onMessageDeletedForMe);
+    socket.on("messageDeletedForEveryone", onMessageDeletedForEveryone);
+
+    return () => {
+      socket.off("newMessage", onNewMessage);
+      socket.off("messageDeletedForMe", onMessageDeletedForMe);
+      socket.off("messageDeletedForEveryone", onMessageDeletedForEveryone);
+    };
+  }, [socket, onNewMessage, onMessageDeletedForMe, onMessageDeletedForEveryone]);
 
   // Load users when component mounts and when socket connects
   useEffect(() => {
