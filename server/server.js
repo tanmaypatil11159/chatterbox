@@ -110,37 +110,47 @@ io.on("connection", (socket) => {
 
   // WebRTC Signaling
   socket.on("call-user", ({ to, offer, callerInfo }) => {
-    const toSocketId = userSocketMap[to];
-    if (toSocketId) {
-      socket.to(toSocketId).emit("incoming-call", { from: userId, offer, callerInfo });
+    const toSocketIds = userSocketMap[to];
+    if (toSocketIds) {
+      toSocketIds.forEach(socketId => {
+        socket.to(socketId).emit("incoming-call", { from: userId, offer, callerInfo });
+      });
     }
   });
 
   socket.on("answer-call", ({ to, answer }) => {
-    const toSocketId = userSocketMap[to];
-    if (toSocketId) {
-      socket.to(toSocketId).emit("call-accepted", { from: userId, answer });
+    const toSocketIds = userSocketMap[to];
+    if (toSocketIds) {
+      toSocketIds.forEach(socketId => {
+        socket.to(socketId).emit("call-accepted", { from: userId, answer });
+      });
     }
   });
 
   socket.on("ice-candidate", ({ to, candidate }) => {
-    const toSocketId = userSocketMap[to];
-    if (toSocketId) {
-      socket.to(toSocketId).emit("ice-candidate", { from: userId, candidate });
+    const toSocketIds = userSocketMap[to];
+    if (toSocketIds) {
+      toSocketIds.forEach(socketId => {
+        socket.to(socketId).emit("ice-candidate", { from: userId, candidate });
+      });
     }
   });
 
   socket.on("reject-call", ({ to }) => {
-    const toSocketId = userSocketMap[to];
-    if (toSocketId) {
-      socket.to(toSocketId).emit("call-rejected", { from: userId });
+    const toSocketIds = userSocketMap[to];
+    if (toSocketIds) {
+      toSocketIds.forEach(socketId => {
+        socket.to(socketId).emit("call-rejected", { from: userId });
+      });
     }
   });
 
   socket.on("end-call", ({ to }) => {
-    const toSocketId = userSocketMap[to];
-    if (toSocketId) {
-      socket.to(toSocketId).emit("call-ended", { from: userId });
+    const toSocketIds = userSocketMap[to];
+    if (toSocketIds) {
+      toSocketIds.forEach(socketId => {
+        socket.to(socketId).emit("call-ended", { from: userId });
+      });
     }
   });
 });

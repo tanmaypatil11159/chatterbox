@@ -183,10 +183,12 @@ export const sendMessage = async (req, res) => {
         });
 
         // Emit the new message to the receiver's socket (use globalThis set in server)
-        const receiverSocketId = globalThis.userSocketMap && globalThis.userSocketMap[receiverId];
+        const receiverSocketIds = globalThis.userSocketMap && globalThis.userSocketMap[receiverId];
 
-        if (receiverSocketId && globalThis.io) {
-            globalThis.io.to(receiverSocketId).emit("newMessage", newMessage);
+        if (receiverSocketIds && globalThis.io) {
+            receiverSocketIds.forEach(socketId => {
+                globalThis.io.to(socketId).emit("newMessage", newMessage);
+            });
         }
 
         const notification = await Notification.create({
@@ -196,9 +198,11 @@ export const sendMessage = async (req, res) => {
         })
 
         // Emit socket event for new notification
-        if (receiverSocketId && globalThis.io) {
+        if (receiverSocketIds && globalThis.io) {
             const populatedNotification = await Notification.findById(notification._id).populate("sender","fullName profilePic");
-            globalThis.io.to(receiverSocketId).emit("newNotification", populatedNotification);
+            receiverSocketIds.forEach(socketId => {
+                globalThis.io.to(socketId).emit("newNotification", populatedNotification);
+            });
         }
 
 
@@ -229,8 +233,8 @@ export const deleteMessage = async (req, res) => {
             return res.status(404).json({ success: false, message: "Message not found" });
         }
 
-        const receiverSocketId = globalThis.userSocketMap && globalThis.userSocketMap[message.receiverId];
-        const senderSocketId = globalThis.userSocketMap && globalThis.userSocketMap[message.senderId];
+        const receiverSocketIds = globalThis.userSocketMap && globalThis.userSocketMap[message.receiverId];
+        const senderSocketIds = globalThis.userSocketMap && globalThis.userSocketMap[message.senderId];
 
         if (deleteType === "forMe") {
             // Push to deletedFor array
@@ -241,9 +245,11 @@ export const deleteMessage = async (req, res) => {
 
             // Emit to ONLY the user who requested the delete
             if (globalThis.io) {
-                const requestorSocketId = globalThis.userSocketMap && globalThis.userSocketMap[userId];
-                if (requestorSocketId) {
-                    globalThis.io.to(requestorSocketId).emit("messageDeletedForMe", id);
+                const requestorSocketIds = globalThis.userSocketMap && globalThis.userSocketMap[userId];
+                if (requestorSocketIds) {
+                    requestorSocketIds.forEach(socketId => {
+                        globalThis.io.to(socketId).emit("messageDeletedForMe", id);
+                    });
                 }
             }
             return res.status(200).json({ success: true, message: "Message deleted for you" });
@@ -261,8 +267,16 @@ export const deleteMessage = async (req, res) => {
 
             // Notify both sender and receiver via socket
             if (globalThis.io) {
-                if (receiverSocketId) globalThis.io.to(receiverSocketId).emit("messageDeletedForEveryone", { id, isDeletedForEveryone: true });
-                if (senderSocketId) globalThis.io.to(senderSocketId).emit("messageDeletedForEveryone", { id, isDeletedForEveryone: true });
+                if (receiverSocketIds) {
+                    receiverSocketIds.forEach(socketId => {
+                        globalThis.io.to(socketId).emit("messageDeletedForEveryone", { id, isDeletedForEveryone: true });
+                    });
+                }
+                if (senderSocketIds) {
+                    senderSocketIds.forEach(socketId => {
+                        globalThis.io.to(socketId).emit("messageDeletedForEveryone", { id, isDeletedForEveryone: true });
+                    });
+                }
             }
 
             return res.status(200).json({ success: true, message: "Message deleted for everyone" });

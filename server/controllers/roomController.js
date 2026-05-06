@@ -238,20 +238,20 @@ export const requestToJoin = async (req, res) => {
       if (globalThis.io && globalThis.userSocketMap) {
         room.admins.forEach((adminId) => {
 
-          const socketId = globalThis.userSocketMap[adminId.toString()];
+          const socketIds = globalThis.userSocketMap[adminId.toString()];
 
-          if (socketId) {
-
-            globalThis.io.to(socketId).emit("room:join_request", {
-              roomId: room._id,
-              userId: uid,
-              user: {
-                _id: req.user._id,
-                fullName: req.user.fullName,
-                profilePic: req.user.profilePic
-              }
+          if (socketIds) {
+            socketIds.forEach(socketId => {
+              globalThis.io.to(socketId).emit("room:join_request", {
+                roomId: room._id,
+                userId: uid,
+                user: {
+                  _id: req.user._id,
+                  fullName: req.user.fullName,
+                  profilePic: req.user.profilePic
+                }
+              });
             });
-
           }
 
         });
@@ -329,10 +329,13 @@ export const handleJoinRequest = async (req, res) => {
 
     if (globalThis.io && globalThis.userSocketMap) {
 
-      const socketId = globalThis.userSocketMap[targetId.toString()];
+      const socketIds = globalThis.userSocketMap[targetId.toString()];
 
-      if (socketId)
-        globalThis.io.to(socketId).emit("room:request_handled", { roomId: room._id, action });
+      if (socketIds) {
+        socketIds.forEach(socketId => {
+          globalThis.io.to(socketId).emit("room:request_handled", { roomId: room._id, action });
+        });
+      }
 
     }
 
@@ -413,10 +416,12 @@ export const inviteFriend = async (req, res) => {
     });
 
     // Emit socket event for new notification
-    const receiverSocketId = globalThis.userSocketMap && globalThis.userSocketMap[invitedUser];
-    if (receiverSocketId && globalThis.io) {
+    const receiverSocketIds = globalThis.userSocketMap && globalThis.userSocketMap[invitedUser];
+    if (receiverSocketIds && globalThis.io) {
       const populatedNotification = await Notification.findById(notification._id).populate("sender","fullName profilePic");
-      globalThis.io.to(receiverSocketId).emit("newNotification", populatedNotification);
+      receiverSocketIds.forEach(socketId => {
+        globalThis.io.to(socketId).emit("newNotification", populatedNotification);
+      });
     }
 
     await room.save();
@@ -740,9 +745,11 @@ export const deleteRoomMessage = async (req, res) => {
 
       // Emit to ONLY the user who requested the delete
       if (globalThis.io) {
-          const requestorSocketId = globalThis.userSocketMap && globalThis.userSocketMap[userId];
-          if (requestorSocketId) {
-              globalThis.io.to(requestorSocketId).emit("room:messageDeletedForMe", id);
+          const requestorSocketIds = globalThis.userSocketMap && globalThis.userSocketMap[userId];
+          if (requestorSocketIds) {
+              requestorSocketIds.forEach(socketId => {
+                  globalThis.io.to(socketId).emit("room:messageDeletedForMe", id);
+              });
           }
       }
       return res.status(200).json({ success: true, message: "Room message deleted for you" });
