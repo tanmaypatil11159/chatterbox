@@ -1,14 +1,22 @@
-import React, { useContext, useEffect, useRef, useState } from "react";
+import React, { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ChatContext } from "../../context/chatContext";
 import { AuthContext } from "../../context/authContext";
 import { formatMessageTime } from "../lib/utils";
-import { Image, Menu, Info, Video, Trash2, ChevronLeft, Send } from "lucide-react";
+import {
+  Image,
+  Menu,
+  Info,
+  Video,
+  Trash2,
+  ChevronLeft,
+  Send
+} from "lucide-react";
+
 import { VideoCallContext } from "../../context/VideoCallContext";
-import { NavLink } from "react-router-dom";
 
 function ChatContainer({ onOpenLeft }) {
 
-  const { authUser, onlineUsers, socket } = useContext(AuthContext);
+  const { authUser, onlineUsers } = useContext(AuthContext);
 
   const {
     messages,
@@ -16,8 +24,6 @@ function ChatContainer({ onOpenLeft }) {
     sendImage,
     getMessages,
     selectedUser,
-    setSelectedUser,
-    setMessages,
     deleteMessage,
     sendFriendRequest,
     acceptFriendRequest,
@@ -39,34 +45,58 @@ function ChatContainer({ onOpenLeft }) {
   const friendStatus = selectedUser?.friendStatus;
   const isFriend = friendStatus === "friend";
 
-  /* close popup on outside click */
+
+
+  // =========================
+  // FETCH MESSAGES ONLY ON CHAT CHANGE
+  // =========================
+
   useEffect(() => {
+
+    if (!selectedUser?._id) return;
+
+    getMessages(selectedUser._id);
+
+  }, [selectedUser?._id]);
+
+
+
+  // =========================
+  // CLOSE MENU ON OUTSIDE CLICK
+  // =========================
+
+  useEffect(() => {
+
     const handler = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
+
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(e.target)
+      ) {
         setShowMenu(false);
       }
+
     };
 
     document.addEventListener("mousedown", handler);
 
-    return () => document.removeEventListener("mousedown", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+    };
+
   }, []);
 
-  /* fetch messages */
-  useEffect(() => {
-    if (!selectedUser || selectedUser.friendStatus !== "friend") {
-      return;
-    }
 
-    getMessages(selectedUser._id);
-  }, [selectedUser?._id, getMessages]);
 
-  /* REALTIME SOCKET LISTENER */
-  useEffect(() => {
+  // =========================
+  // FILTER CURRENT CHAT MESSAGES
+  // =========================
 
-    if (!socket || !selectedUser) return;
+  const filteredMessages = useMemo(() => {
 
-    const handleNewMessage = (msg) => {
+    if (!selectedUser?._id) return [];
+
+    return messages.filter((msg) => {
 
       const senderId =
         typeof msg.senderId === "object"
@@ -78,40 +108,34 @@ function ChatContainer({ onOpenLeft }) {
           ? msg.receiverId._id
           : msg.receiverId;
 
-      const selectedId = selectedUser._id;
+      return (
+        String(senderId) === String(selectedUser._id) ||
+        String(receiverId) === String(selectedUser._id)
+      );
 
-      const isCurrentChat =
-        String(senderId) === String(selectedId) ||
-        String(receiverId) === String(selectedId);
+    });
 
-      if (!isCurrentChat) return;
+  }, [messages, selectedUser]);
 
-      setMessages((prev) => {
 
-        const exists = prev.some(
-          (m) => String(m._id) === String(msg._id)
-        );
 
-        if (exists) return prev;
+  // =========================
+  // AUTO SCROLL
+  // =========================
 
-        return [...prev, msg];
-      });
-    };
-
-    socket.on("newMessage", handleNewMessage);
-
-    return () => {
-      socket.off("newMessage", handleNewMessage);
-    };
-
-  }, [socket, selectedUser, setMessages]);
-
-  /* auto scroll */
   useEffect(() => {
+
     scrollEnd.current?.scrollIntoView({
       behavior: "smooth"
     });
-  }, [messages]);
+
+  }, [filteredMessages]);
+
+
+
+  // =========================
+  // SEND IMAGE
+  // =========================
 
   const handleImageSend = (e) => {
 
@@ -125,15 +149,22 @@ function ChatContainer({ onOpenLeft }) {
 
   };
 
+
+
+  // =========================
+  // NO CHAT SELECTED
+  // =========================
+
   if (!selectedUser) {
+
     return (
+
       <div className="cartoon-panel_3 flex items-center justify-center h-full relative overflow-hidden">
 
         <button
           type="button"
           onClick={onOpenLeft}
           className="absolute top-4 left-4 cartoon-btn p-2 md:hidden"
-          aria-label="Open chat sidebar"
         >
           <Menu size={24} />
         </button>
@@ -143,13 +174,19 @@ function ChatContainer({ onOpenLeft }) {
         </p>
 
       </div>
+
     );
+
   }
 
+
+
   return (
+
     <div className="cartoon-panel_3 border-l-0 flex flex-col h-full relative overflow-hidden bg-white">
 
-      {/* HEADER */}
+      {/* ================= HEADER ================= */}
+
       <div className="flex items-center gap-2 sm:gap-3 border-b-4 border-black p-3 sm:p-4 relative bg-[var(--header)]">
 
         <button
@@ -162,12 +199,7 @@ function ChatContainer({ onOpenLeft }) {
             rounded-full
             bg-[var(--card)]
             text-[var(--text)]
-            shadow-sm
-            hover:bg-[var(--primary)] hover:text-white
-            transition-all duration-200
-            active:scale-95
           "
-          aria-label="Back to chat list"
         >
           <ChevronLeft size={18} />
         </button>
@@ -176,38 +208,41 @@ function ChatContainer({ onOpenLeft }) {
           src={
             selectedUser?.profilePic ||
             `https://api.dicebear.com/9.x/initials/svg?seed=${encodeURIComponent(
-              selectedUser?.fullName || selectedUser?.username || "U"
-            )}&backgroundColor=8B5CF6,4F46E5,EC4899,10B981,F59E0B`
+              selectedUser?.fullName || "U"
+            )}`
           }
           className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover border-2 border-black"
         />
 
         <div className="flex flex-col min-w-0">
-          <p className="font-extrabold text-base sm:text-lg truncate leading-tight">
+
+          <p className="font-extrabold text-base sm:text-lg truncate">
             {selectedUser.fullName}
           </p>
 
           <p
-            className={`text-[10px] sm:text-xs font-bold truncate ${
+            className={`text-[10px] sm:text-xs font-bold ${
               onlineUsers.includes(selectedUser._id)
                 ? "text-green-600"
                 : "text-gray-500"
             }`}
           >
-            {onlineUsers.includes(selectedUser._id)
-              ? "● Online"
-              : "○ Offline"}
+            {
+              onlineUsers.includes(selectedUser._id)
+                ? "● Online"
+                : "○ Offline"
+            }
           </p>
+
         </div>
 
-        <div className="ml-auto flex items-center gap-1 sm:gap-2">
+        <div className="ml-auto flex items-center gap-2">
 
           {isFriend && (
             <button
               type="button"
               onClick={() => startCall(selectedUser)}
-              className="saas-btn bg-[var(--primary)] text-white p-1.5 sm:p-2"
-              aria-label="Start video call"
+              className="saas-btn bg-[var(--primary)] text-white p-2"
             >
               <Video size={18} />
             </button>
@@ -216,8 +251,7 @@ function ChatContainer({ onOpenLeft }) {
           <button
             type="button"
             onClick={() => setShowMenu((v) => !v)}
-            className="saas-btn p-1.5 sm:p-2 bg-red-500 text-white"
-            aria-label="Open chat actions"
+            className="saas-btn p-2 bg-red-500 text-white"
           >
             <Info size={18} />
           </button>
@@ -226,10 +260,13 @@ function ChatContainer({ onOpenLeft }) {
 
       </div>
 
-      {/* MESSAGES */}
+
+
+      {/* ================= MESSAGES ================= */}
+
       <div className="flex-1 overflow-y-scroll px-4 py-4 flex flex-col gap-4 messages-area">
 
-        {messages?.map((msg, index) => {
+        {filteredMessages.map((msg, index) => {
 
           const senderId =
             typeof msg.senderId === "object"
@@ -239,29 +276,35 @@ function ChatContainer({ onOpenLeft }) {
           const isMe =
             String(senderId) === String(authUser?._id);
 
-          const msgDate = new Date(msg.createdAt).toDateString();
+          const msgDate =
+            new Date(msg.createdAt).toDateString();
 
           const prevMsgDate =
             index > 0
-              ? new Date(messages[index - 1].createdAt).toDateString()
+              ? new Date(filteredMessages[index - 1].createdAt).toDateString()
               : null;
 
           const showDateSeparator =
             msgDate !== prevMsgDate;
 
           return (
+
             <React.Fragment key={String(msg._id)}>
 
               {showDateSeparator && (
                 <div className="flex items-center justify-center my-4">
-                  <div className="bg-gray-200 border-2 border-black rounded-full px-4 py-1 text-xs font-bold shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+
+                  <div className="bg-gray-200 border-2 border-black rounded-full px-4 py-1 text-xs font-bold">
+
                     {new Date(msg.createdAt).toLocaleDateString(undefined, {
                       weekday: "long",
                       year: "numeric",
                       month: "long",
                       day: "numeric"
                     })}
+
                   </div>
+
                 </div>
               )}
 
@@ -270,20 +313,23 @@ function ChatContainer({ onOpenLeft }) {
                   isMe
                     ? "ml-auto items-end"
                     : "mr-auto items-start"
-                } flex flex-col group relative`}
+                } flex flex-col`}
               >
 
                 {msg.image ? (
+
                   <img
                     src={msg.image}
                     className="max-w-full sm:max-w-[220px] rounded-xl border-2 sm:border-4 border-black"
                   />
+
                 ) : (
+
                   <div
                     className={`
                       border-2 sm:border-4 border-black
                       rounded-2xl sm:rounded-3xl
-                      px-3 py-1.5 sm:px-4 sm:py-2
+                      px-3 py-2
                       font-bold text-sm sm:text-base
                       ${
                         isMe
@@ -292,18 +338,22 @@ function ChatContainer({ onOpenLeft }) {
                       }
                     `}
                     style={{
-                      background: isMe
-                        ? "var(--sent)"
-                        : "var(--received)"
+                      background:
+                        isMe
+                          ? "var(--sent)"
+                          : "var(--received)"
                     }}
                   >
                     {msg.text}
                   </div>
+
                 )}
 
                 <p
                   className={`text-[10px] sm:text-xs font-bold mt-1 ${
-                    isMe ? "text-right" : "text-left"
+                    isMe
+                      ? "text-right"
+                      : "text-left"
                   }`}
                 >
                   {formatMessageTime(msg.createdAt)}
@@ -312,18 +362,27 @@ function ChatContainer({ onOpenLeft }) {
               </div>
 
             </React.Fragment>
+
           );
+
         })}
 
         <div ref={scrollEnd} />
 
       </div>
 
-      {/* INPUT */}
+
+
+      {/* ================= INPUT ================= */}
+
       {!isFriend && (
+
         <div className="p-3 text-center text-sm text-orange-700 bg-orange-100 border-t-4 border-black">
+
           You must be friends to chat.
+
         </div>
+
       )}
 
       <form
@@ -343,20 +402,15 @@ function ChatContainer({ onOpenLeft }) {
 
         <label
           htmlFor="imageUpload"
-          className={`
+          className="
             w-10 h-10 sm:w-12 sm:h-12
-            rounded-full flex-shrink-0
+            rounded-full
             flex items-center justify-center
-            cursor-pointer transition-all duration-200
-            bg-[var(--primary)] text-white
-            ${
-              !isFriend
-                ? "opacity-50 cursor-not-allowed"
-                : "hover:bg-blue-600 active:scale-90"
-            }
+            cursor-pointer
+            bg-[var(--primary)]
+            text-white
             border-2 border-black
-          `}
-          aria-label="Upload image"
+          "
         >
           <Image size={20} />
         </label>
@@ -370,7 +424,7 @@ function ChatContainer({ onOpenLeft }) {
         />
 
         <input
-          className="cartoon-input flex-1 py-2 sm:py-3 text-sm sm:text-base min-w-0"
+          className="cartoon-input flex-1 py-2 sm:py-3 text-sm sm:text-base"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={
@@ -386,25 +440,21 @@ function ChatContainer({ onOpenLeft }) {
           disabled={!isFriend || !input.trim()}
           className="
             w-10 h-10 sm:w-12 sm:h-12
-            rounded-full flex-shrink-0
+            rounded-full
             flex items-center justify-center
             border-2 border-black
             bg-green-500 text-white
-            shadow-inner
-            hover:bg-green-600
-            active:scale-90
-            transition-all duration-200
           "
-          aria-label="Send message"
         >
-          <Send size={20} className="block" />
+          <Send size={20} />
         </button>
 
       </form>
 
     </div>
+
   );
+
 }
 
 export default ChatContainer;
-
