@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { toast } from "react-hot-toast";
 import { AuthContext } from "./authContext";
 
@@ -12,6 +12,13 @@ export const ChatProvider = ({ children }) => {
   const [unseenMessages, setUnseenMessages] = useState({});
 
   const { socket, axios, authUser } = useContext(AuthContext);
+
+  // FIX 1: Use a ref so socket handlers always read the latest selectedUser
+  // without needing to be re-registered on every change.
+  const selectedUserRef = useRef(selectedUser);
+  const authUserRef = useRef(authUser);
+  useEffect(() => { selectedUserRef.current = selectedUser; }, [selectedUser]);
+  useEffect(() => { authUserRef.current = authUser; }, [authUser]);
 
   // get all users for sidebar
   const getUsers = useCallback(async () => {
@@ -81,7 +88,7 @@ export const ChatProvider = ({ children }) => {
       if (data.success) {
         toast.success(data.message);
         getUsers();
-        if (selectedUser?._id === userId) setSelectedUser(null);
+        if (selectedUserRef.current?._id === userId) setSelectedUser(null);
       }
     } catch (error) {
       toast.error(error.response?.data?.message || error.message);
@@ -89,7 +96,7 @@ export const ChatProvider = ({ children }) => {
   };
 
   const unblockUser = async (userId) => {
-     try {
+    try {
       const { data } = await axios.post(`/api/friends/unblock/${userId}`);
       if (data.success) {
         toast.success(data.message);
@@ -98,38 +105,40 @@ export const ChatProvider = ({ children }) => {
     } catch (error) {
       toast.error(error.response?.data?.message || error.message);
     }
-  }
+  };
 
   // ================================================
 
-  // get messages of selected user - MERGE with existing to avoid overwriting socket messages
+  // FIX 2: Simplified — no merge needed because messages are cleared on user
+  // change before this is called, so prev is always [].
   const getMessages = useCallback(async (userId) => {
-    console.log("📥 getMessages called for userId:", userId);
     try {
       const { data } = await axios.get(`/api/messages/${userId}`);
       if (data.success) {
-        console.log("📥 getMessages received data.messages:", data.messages);
-        setMessages((prev) => {
-          const existingIds = new Set(prev.map(m => String(m._id)));
-          const newMessages = data.messages.filter(m => !existingIds.has(String(m._id)));
-          console.log("📥 getMessages merging - existingIds:", existingIds, "newMessages to add:", newMessages);
-          return [...prev, ...newMessages];
-        });
+        setMessages(data.messages);
       }
     } catch (error) {
       toast.error(error.response?.data?.message || error.message);
     }
   }, [axios]);
 
-  // send message to selected user
+  // FIX 3 + 4: Optimistic update using the server-returned message (which has
+  // a real _id), so the socket echo deduplication works correctly and the
+  // message appears instantly without waiting for the socket round-trip.
   const sendMessage = async (messageData) => {
     try {
       const { data } = await axios.post(
-        `/api/messages/send/${selectedUser._id}`,
+        `/api/messages/send/${selectedUserRef.current._id}`,
         messageData
       );
 
-      if (!data.success) {
+      if (data.success && data.message) {
+        // Optimistically add the message — socket echo will be deduplicated by _id
+        setMessages((prev) => {
+          const exists = prev.some(m => String(m._id) === String(data.message._id));
+          return exists ? prev : [...prev, data.message];
+        });
+      } else if (!data.success) {
         toast.error(data.message);
       }
     } catch (error) {
@@ -170,7 +179,7 @@ export const ChatProvider = ({ children }) => {
   const deleteMessage = async (messageId, deleteType) => {
     try {
       const { data } = await axios.delete(`/api/messages/${messageId}`, {
-        data: { deleteType }
+        data: { deleteType },
       });
       if (data.success) {
         if (deleteType === "forMe") {
@@ -191,59 +200,51 @@ export const ChatProvider = ({ children }) => {
     }
   };
 
-  // ================= SOCKET LISTENERS - EXACTLY LIKE ROOM CONTEXT =================
+  // ================= SOCKET LISTENERS =================
+  // FIX 1 continued: No deps on selectedUser/authUser — read from refs instead.
+  // Socket handlers are registered once and never need to be re-registered.
   const onNewMessage = useCallback((newMessage) => {
-    console.log("📡 SOCKET RECEIVED newMessage:", newMessage);
-
     if (!newMessage) return;
 
-    const senderId = typeof newMessage.senderId === "object" ? newMessage.senderId._id : newMessage.senderId;
-    const receiverId = typeof newMessage.receiverId === "object" ? newMessage.receiverId._id : newMessage.receiverId;
-    const selectedId = selectedUser?._id;
+    const senderId = typeof newMessage.senderId === "object"
+      ? String(newMessage.senderId._id)
+      : String(newMessage.senderId);
+    const receiverId = typeof newMessage.receiverId === "object"
+      ? String(newMessage.receiverId._id)
+      : String(newMessage.receiverId);
 
-    console.log("📡 Parsed IDs - senderId:", senderId, "receiverId:", receiverId, "selectedId:", selectedId);
+    const currentUser = selectedUserRef.current;
+    const selectedId = currentUser ? String(currentUser._id) : null;
 
-    const isCurrentChat = selectedUser && (
-      String(senderId) === String(selectedId) || 
-      String(receiverId) === String(selectedId)
+    const isCurrentChat = selectedId && (
+      senderId === selectedId || receiverId === selectedId
     );
 
-    console.log("📡 isCurrentChat:", isCurrentChat);
-
     if (isCurrentChat) {
-      console.log("📡 Updating messages state");
       setMessages((prev) => {
         const exists = prev.some(msg => String(msg._id) === String(newMessage._id));
-        console.log("📡 Duplicate check - exists:", exists);
-        if (exists) return prev;
-        return [...prev, newMessage];
+        return exists ? prev : [...prev, newMessage];
       });
 
-      // Mark as seen if message is from the selected user
-      if (String(senderId) === String(selectedId)) {
+      if (senderId === selectedId) {
         axios.put(`/api/messages/mark/${newMessage._id}`);
       }
     } else {
-      // Update unseen count only if message is not from me
-      const myId = authUser?._id;
-      if (String(senderId) !== String(myId)) {
+      const myId = authUserRef.current ? String(authUserRef.current._id) : null;
+      if (myId && senderId !== myId) {
         setUnseenMessages((prev) => ({
           ...prev,
-          [String(senderId)]: prev[String(senderId)]
-            ? prev[String(senderId)] + 1
-            : 1,
+          [senderId]: (prev[senderId] ?? 0) + 1,
         }));
       }
     }
-  }, [selectedUser, authUser, axios]);
+  }, [axios]); // axios is stable; selectedUser/authUser read via refs
 
   const onMessageDeletedForMe = useCallback((messageId) => {
-    console.log("🗑️ SOCKET RECEIVED messageDeletedForMe:", messageId);
     setMessages((prev) => prev.filter((msg) => String(msg._id) !== String(messageId)));
   }, []);
 
   const onMessageDeletedForEveryone = useCallback(({ id }) => {
-    console.log("🗑️ SOCKET RECEIVED messageDeletedForEveryone:", id);
     setMessages((prev) =>
       prev.map((msg) =>
         String(msg._id) === String(id)
@@ -253,6 +254,7 @@ export const ChatProvider = ({ children }) => {
     );
   }, []);
 
+  // Register socket listeners once
   useEffect(() => {
     if (!socket) return;
 
@@ -267,17 +269,17 @@ export const ChatProvider = ({ children }) => {
     };
   }, [socket, onNewMessage, onMessageDeletedForMe, onMessageDeletedForEveryone]);
 
-  // Load users when component mounts
+  // Load users on mount
   useEffect(() => {
     getUsers();
   }, [getUsers]);
 
-  // Clear messages when selected user changes
+  // Clear messages when switching conversations
   useEffect(() => {
     setMessages([]);
   }, [selectedUser?._id]);
 
-  // reset selection on auth change
+  // Reset on auth change
   useEffect(() => {
     setSelectedUser(null);
     setMessages([]);
@@ -303,7 +305,7 @@ export const ChatProvider = ({ children }) => {
     rejectFriendRequest,
     unfriend,
     blockUser,
-    unblockUser
+    unblockUser,
   };
 
   return (
