@@ -187,30 +187,54 @@ export const ChatProvider = ({ children }) => {
 
   // subscribe to socket messages with useCallback to prevent duplicates
   const onNewMessage = useCallback((newMessage) => {
-    if (!newMessage) return;
-    if (selectedUser && (newMessage.senderId === selectedUser._id || newMessage.receiverId === selectedUser._id)) {
-      // Check if message already exists to avoid duplicates
-      setMessages((prev) => {
-        const exists = prev.some(msg => msg._id === newMessage._id);
-        if (exists) return prev;
-        const updatedMessages = [...prev, newMessage];
-        return updatedMessages;
-      });
-      
-      // Mark as seen if it's from the selected user
-      if (newMessage.senderId === selectedUser._id) {
-        newMessage.seen = true;
-        axios.put(`/api/messages/mark/${newMessage._id}`);
-      }
-    } else {
-      setUnseenMessages((prev) => ({
-        ...prev,
-        [newMessage.senderId]: prev[newMessage.senderId]
-          ? prev[newMessage.senderId] + 1
-          : 1,
-      }));
+
+  if (!newMessage) return;
+
+  const senderId =
+    typeof newMessage.senderId === "object"
+      ? newMessage.senderId._id
+      : newMessage.senderId;
+
+  const receiverId =
+    typeof newMessage.receiverId === "object"
+      ? newMessage.receiverId._id
+      : newMessage.receiverId;
+
+  const selectedId = selectedUser?._id;
+
+  const isCurrentChat =
+    String(senderId) === String(selectedId) ||
+    String(receiverId) === String(selectedId);
+
+  if (isCurrentChat) {
+
+    setMessages((prev) => {
+
+      const exists = prev.some(
+        (msg) => String(msg._id) === String(newMessage._id)
+      );
+
+      if (exists) return prev;
+
+      return [...prev, newMessage];
+    });
+
+    if (String(senderId) === String(selectedId)) {
+      axios.put(`/api/messages/mark/${newMessage._id}`);
     }
-  }, [selectedUser, axios]);
+
+  } else {
+
+    setUnseenMessages((prev) => ({
+      ...prev,
+      [senderId]: prev[senderId]
+        ? prev[senderId] + 1
+        : 1,
+    }));
+
+  }
+
+}, [selectedUser, axios]);
 
   const onMessageDeletedForMe = useCallback((messageId) => {
     setMessages((prev) => prev.filter((msg) => msg._id !== messageId));
