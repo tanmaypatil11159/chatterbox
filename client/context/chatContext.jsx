@@ -123,10 +123,7 @@ export const ChatProvider = ({ children }) => {
         messageData
       );
 
-      if (data.success) {
-        const newMsg = data.newMessage || data.message;
-        if (newMsg) setMessages((prev) => [...prev, newMsg]);
-      } else {
+      if (!data.success) {
         toast.error(data.message);
       }
     } catch (error) {
@@ -194,11 +191,20 @@ export const ChatProvider = ({ children }) => {
 
     socket.on("newMessage", (newMessage) => {
       if (!newMessage) return;
-      if (selectedUser && newMessage.senderId === selectedUser._id) {
-        newMessage.seen = true;
-
-        setMessages((prev) => [...prev, newMessage]);
-        axios.put(`/api/messages/mark/${newMessage._id}`);
+      if (selectedUser && (newMessage.senderId === selectedUser._id || newMessage.receiverId === selectedUser._id)) {
+        // Check if message already exists to avoid duplicates
+        setMessages((prev) => {
+          const exists = prev.some(msg => msg._id === newMessage._id);
+          if (exists) return prev;
+          const updatedMessages = [...prev, newMessage];
+          return updatedMessages;
+        });
+        
+        // Mark as seen if it's from the selected user
+        if (newMessage.senderId === selectedUser._id) {
+          newMessage.seen = true;
+          axios.put(`/api/messages/mark/${newMessage._id}`);
+        }
       } else {
         setUnseenMessages((prev) => ({
           ...prev,

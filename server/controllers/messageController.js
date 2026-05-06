@@ -182,11 +182,18 @@ export const sendMessage = async (req, res) => {
             image: imageUrl,
         });
 
-        // Emit the new message to the receiver's socket (use globalThis set in server)
+        // Emit the new message to both sender and receiver's sockets (use globalThis set in server)
         const receiverSocketIds = globalThis.userSocketMap && globalThis.userSocketMap[receiverId];
+        const senderSocketIds = globalThis.userSocketMap && globalThis.userSocketMap[senderId];
 
         if (receiverSocketIds && globalThis.io) {
             receiverSocketIds.forEach(socketId => {
+                globalThis.io.to(socketId).emit("newMessage", newMessage);
+            });
+        }
+
+        if (senderSocketIds && globalThis.io) {
+            senderSocketIds.forEach(socketId => {
                 globalThis.io.to(socketId).emit("newMessage", newMessage);
             });
         }
