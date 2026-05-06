@@ -182,19 +182,25 @@ export const sendMessage = async (req, res) => {
             image: imageUrl,
         });
 
+        // Populate the message exactly like REST API does
+        const populatedMessage = await Message.findById(newMessage._id);
+
         // Emit the new message to both sender and receiver's sockets (use globalThis set in server)
         const receiverSocketIds = globalThis.userSocketMap && globalThis.userSocketMap[receiverId];
         const senderSocketIds = globalThis.userSocketMap && globalThis.userSocketMap[senderId];
 
+        console.log("EMITTING newMessage to:", { receiverId, senderId, receiverSocketIds, senderSocketIds });
+        console.log("EMITTING populatedMessage:", populatedMessage);
+
         if (receiverSocketIds && globalThis.io) {
             receiverSocketIds.forEach(socketId => {
-                globalThis.io.to(socketId).emit("newMessage", newMessage);
+                globalThis.io.to(socketId).emit("newMessage", populatedMessage);
             });
         }
 
         if (senderSocketIds && globalThis.io) {
             senderSocketIds.forEach(socketId => {
-                globalThis.io.to(socketId).emit("newMessage", newMessage);
+                globalThis.io.to(socketId).emit("newMessage", populatedMessage);
             });
         }
 

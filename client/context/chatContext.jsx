@@ -105,9 +105,11 @@ export const ChatProvider = ({ children }) => {
 
   // get messages of selected user
   const getMessages = useCallback(async (userId) => {
+    console.log("📥 getMessages called for userId:", userId);
     try {
       const { data } = await axios.get(`/api/messages/${userId}`);
       if (data.success) {
+        console.log("📥 getMessages received data.messages:", data.messages);
         setMessages(data.messages);
       }
     } catch (error) {
@@ -168,11 +170,11 @@ export const ChatProvider = ({ children }) => {
       });
       if (data.success) {
         if (deleteType === "forMe") {
-          setMessages((prev) => prev.filter((msg) => msg._id !== messageId));
+          setMessages((prev) => prev.filter((msg) => String(msg._id) !== String(messageId)));
         } else {
           setMessages((prev) =>
             prev.map((msg) =>
-              msg._id === messageId
+              String(msg._id) === String(messageId)
                 ? { ...msg, isDeletedForEveryone: true, text: "", image: "" }
                 : msg
             )
@@ -187,63 +189,75 @@ export const ChatProvider = ({ children }) => {
 
   // subscribe to socket messages with useCallback to prevent duplicates
   const onNewMessage = useCallback((newMessage) => {
+    console.log("📡 SOCKET RECEIVED newMessage:", newMessage);
+    console.log("📡 Current selectedUser:", selectedUser);
 
-  if (!newMessage) return;
+    if (!newMessage) return;
 
-  const senderId =
-    typeof newMessage.senderId === "object"
-      ? newMessage.senderId._id
-      : newMessage.senderId;
+    const senderId =
+      typeof newMessage.senderId === "object"
+        ? newMessage.senderId._id
+        : newMessage.senderId;
 
-  const receiverId =
-    typeof newMessage.receiverId === "object"
-      ? newMessage.receiverId._id
-      : newMessage.receiverId;
+    const receiverId =
+      typeof newMessage.receiverId === "object"
+        ? newMessage.receiverId._id
+        : newMessage.receiverId;
 
-  const selectedId = selectedUser?._id;
+    const selectedId = selectedUser?._id;
 
-  const isCurrentChat =
-    String(senderId) === String(selectedId) ||
-    String(receiverId) === String(selectedId);
+    console.log("📡 Parsed IDs - senderId:", senderId, "receiverId:", receiverId, "selectedId:", selectedId);
 
-  if (isCurrentChat) {
+    const isCurrentChat =
+      String(senderId) === String(selectedId) ||
+      String(receiverId) === String(selectedId);
 
-    setMessages((prev) => {
+    console.log("📡 isCurrentChat:", isCurrentChat);
 
-      const exists = prev.some(
-        (msg) => String(msg._id) === String(newMessage._id)
-      );
+    if (isCurrentChat) {
+      console.log("📡 Message belongs to current chat, updating state");
+      
+      setMessages((prev) => {
+        const exists = prev.some(
+          (msg) => String(msg._id) === String(newMessage._id)
+        );
 
-      if (exists) return prev;
+        console.log("📡 Duplicate check - exists:", exists, "prev messages count:", prev.length);
+        
+        if (exists) return prev;
 
-      return [...prev, newMessage];
-    });
+        const updatedMessages = [...prev, newMessage];
+        console.log("📡 Updated messages:", updatedMessages);
+        return updatedMessages;
+      });
 
-    if (String(senderId) === String(selectedId)) {
-      axios.put(`/api/messages/mark/${newMessage._id}`);
+      if (String(senderId) === String(selectedId)) {
+        axios.put(`/api/messages/mark/${newMessage._id}`);
+      }
+
+    } else {
+      console.log("📡 Message doesn't belong to current chat, updating unseen count");
+      
+      setUnseenMessages((prev) => ({
+        ...prev,
+        [senderId]: prev[senderId]
+          ? prev[senderId] + 1
+          : 1,
+      }));
     }
 
-  } else {
-
-    setUnseenMessages((prev) => ({
-      ...prev,
-      [senderId]: prev[senderId]
-        ? prev[senderId] + 1
-        : 1,
-    }));
-
-  }
-
-}, [selectedUser, axios]);
+  }, [selectedUser, axios]);
 
   const onMessageDeletedForMe = useCallback((messageId) => {
-    setMessages((prev) => prev.filter((msg) => msg._id !== messageId));
+    console.log("🗑️ SOCKET RECEIVED messageDeletedForMe:", messageId);
+    setMessages((prev) => prev.filter((msg) => String(msg._id) !== String(messageId)));
   }, []);
 
   const onMessageDeletedForEveryone = useCallback(({ id }) => {
+    console.log("🗑️ SOCKET RECEIVED messageDeletedForEveryone:", id);
     setMessages((prev) =>
       prev.map((msg) =>
-        msg._id === id
+        String(msg._id) === String(id)
           ? { ...msg, isDeletedForEveryone: true, text: "", image: "" }
           : msg
       )

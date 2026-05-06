@@ -253,7 +253,7 @@ function ChatContainer({ onOpenLeft }) {
             msgDate !== prevMsgDate;
 
           return (
-            <React.Fragment key={msg._id || `${msg.senderId}-${msg.createdAt}`}>
+            <React.Fragment key={String(msg._id)}>
 
               {showDateSeparator && (
                 <div className="flex items-center justify-center my-4">
