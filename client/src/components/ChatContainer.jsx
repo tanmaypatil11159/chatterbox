@@ -50,6 +50,28 @@ function ChatContainer({ onOpenLeft }) {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  useEffect(() => {
+   if (!socket) return;
+
+   const handleNewMessage = (msg) => {
+      if (
+         selectedUser &&
+         (
+            msg.senderId === selectedUser._id ||
+            msg.receiverId === selectedUser._id
+         )
+      ) {
+         setMessages(prev => [...prev, msg]);
+      }
+   };
+
+   socket.on("newMessage", handleNewMessage);
+
+   return () => {
+      socket.off("newMessage", handleNewMessage);
+   };
+}, [socket, selectedUser]);
+
   /* fetch messages */
   useEffect(() => {
     if (!selectedUser || selectedUser.friendStatus !== "friend") {
